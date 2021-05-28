@@ -1,0 +1,633 @@
+---
+title: "FinalProjectCode"
+author: "Team Zulu"
+date: "5/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+# set seed to your own favorite number
+set.seed(2021)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=FALSE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r setup-2}
+library(tidyverse)
+library('ggplot2')
+library(rsample)
+library(tree)
+library(tidyverse)
+library(ggplot2)
+library(randomForest)
+library(rsample)
+library(knitr)
+library(tree)
+library(glmnet)
+library(glmnetUtils)
+library(forcats)
+library(stargazer)
+library(ISLR)
+library(caret)
+library(groupdata2)
+library(lindia)
+library(plotROC)
+library(plotROC)
+library(forecast)
+library(yardstick)
+library(plyr)
+library(ggcorrplot)
+library(ROSE)
+options(scipen = 9999)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r, include= FALSE}
+#Exploratory Data Analysis and cleaning code
+orgs = read.csv('organizations.csv')
+
+
+orgs = subset(orgs, select = -c(Address, Apartment.suite.no, 
+                                House.number, Street.road.name,
+                                District.sublocality, City.town.village.locality, 
+                                State.county, Region, Country, ZIP.Postal.code, 
+                                Full.combined.address, Website, Keywords, CB.Description,
+                                CB.Industries, Currency.of.Last.Funding.Amount,
+                                Currency.of.Total.Funding.Amount) )
+
+
+orgs = na.omit(orgs)
+
+#changing column name
+
+names(orgs)[names(orgs) == "Number.of.Acquisitions"] <- "aqed"
+
+
+#releveling the aqed column
+cbind(orgs, aqed = as.numeric(ifelse(orgs$aqed > 0, 1, 0)))
+
+
+
+# read dataset
+
+
+orgs = orgs%>%
+  mutate(Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Employee.Range = as.factor(Employee.Range),
+         aqed = as.factor(aqed))
+
+# order the Employee range 
+
+
+
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="10-Jan"] <- 1
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="Nov-50"] <- 2
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="51-100"] <- 3
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="101-250"] <- 4
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="251-500"] <- 5
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="501-1000"] <- 6
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="1001-5000"] <- 7
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="5001-10000"] <- 8
+levels(orgs$Employee.Range)[levels(orgs$Employee.Range)=="10001+"] <- 9
+
+
+
+
+#leveling the acquisition column
+
+levels(orgs$aqed)[levels(orgs$aqed) > 0 ] <- 1
+levels(orgs$aqed)[levels(orgs$aqed) == 0 ] <- 0
+
+
+
+
+#manual downsampling procedure
+Acquired = which(orgs$aqed == 1)
+not_Acquired = which(orgs$aqed == 0) 
+No.downsample = sample(not_Acquired,length(Acquired))
+orgs_downsampled= orgs[c(No.downsample, Acquired),]
+
+#first plot showing 
+
+
+```
+
+
+```{r}
+#first graph for exploratory data analysis...for more detailed descriptions please look at final report
+ggplot(orgs_downsampled, aes(x = Employee.Range, fill = aqed)) + geom_bar(width = 0.9) + ggtitle("Employee Range and Acquired Companies")
+
+```
+
+
+```{r}
+#seconds graph showing frequency of employees
+ggplot(orgs_downsampled, aes(x=Employee.Range)) + geom_bar(bins = 50)+ ggtitle("Frequency of # of Employees")
+
+```
+
+```{r}
+#third graph showing company type
+ggplot(orgs_downsampled, aes(x = aqed, fill = Company.Type)) + geom_bar(position = "stack") + ggtitle("Company Type and Acquired Companies")
+
+
+```
+
+```{r}
+#fourth intuitive graph showing funding amount compared to acquired companies
+ggplot(data=orgs_downsampled, aes(x= aqed, y= Last.Funding.Amount)) + geom_bar(stat="identity")
+
+
+```
+```{r}
+#cleaning code for linear regression.... similar to data cleaning code for exploratory data analysis
+
+companies <- read.csv("organizations.csv")
+
+
+options(scipen = 9999)
+companies_clean <-
+  companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            Country, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries, 
+  )) %>%
+  mutate(Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Employee.Range = as.factor(Employee.Range),
+         Number.of.Acquisitions = as.integer(Number.of.Acquisitions))
+companies_clean %>% glimpse()
+str(companies_clean)
+companies_clean <- companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries,
+            Currency.of.Last.Funding.Amount,
+            Currency.of.Total.Funding.Amount))
+companies_clean %>% glimpse()
+
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10-Jan"] <- 1
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="Nov-50"] <- 2
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="51-100"] <- 3
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="101-250"] <- 4
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="251-500"] <- 5
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="501-1000"] <- 6
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="1001-5000"] <- 7
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="5001-10000"] <- 8
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10001+"] <- 9
+
+companies_clean <- 
+  cbind(companies_clean, Acquirer.Binary = as.numeric(ifelse(companies_clean$Number.of.Acquisitions > 0, 1, 0)))
+
+companies_nonmissing <- companies_clean %>% drop_na(Employee.Range, Industry, Number.of.Acquisitions)
+
+
+
+
+```
+
+
+```{r}
+#Multivariate linear regression modeled(Not downsampled) but with RMSE result at bottom
+
+
+
+linear_split <- initial_split(companies_nonmissing, prop=0.7)
+linear_train <- training(linear_split)
+linear_test <- testing(linear_split)
+summary(companies_clean)
+
+
+linmod <- lm(Number.of.Acquisitions ~ Company.Type + Employee.Range + 
+               Last.Funding.Amount + Total.Funding.Amount,
+             data = linear_train)
+
+summary(linmod)
+
+
+preds_train = predict(linmod)
+preds_test = predict(linmod, newdata = linear_test)
+
+RMSE(linear_train$Number.of.Acquisitions, preds_train)
+RMSE(linear_train$Number.of.Acquisitions, preds_test)
+
+
+
+```
+
+```{r}
+
+#True vs the predicted number
+library(ggplot2)
+
+preds_df <- data.frame(
+  acq =c(linear_train$Number.of.Acquisitions, linear_test$Number.of.Acquisitions),
+  preds = c(preds_train, preds_test),
+  type = c(rep("train", length(preds_train)),
+           rep("test", length(preds_test)))
+)
+
+ggplot(preds_df, aes(x = acq, y = preds)) + geom_point(alpha = 1/10) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  facet_wrap(~type) + 
+  labs(x = "True Number Acquired", y = "Predicted Number Acquired") + ylim(0,20) + xlim(0,50)
+
+
+```
+
+
+
+```{r}
+#scatter plot of residuals against the fitted values (predicted outcome) for the training set
+
+gg_resfitted(linmod)
+
+
+```
+
+
+
+
+
+
+```{r}
+#logistic regression data cleaning
+companies <- read.csv("organizations.csv")
+
+# remove columns
+companies_clean <- companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries,
+            Currency.of.Last.Funding.Amount,
+            Currency.of.Total.Funding.Amount))
+
+# Code for changing the column into numbers
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10-Jan"] <- 1
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="Nov-50"] <- 2
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="51-100"] <- 3
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="101-250"] <- 4
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="251-500"] <- 5
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="501-1000"] <- 6
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="1001-5000"] <- 7
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="5001-10000"] <- 8
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10001+"] <- 9
+
+# fill in N/A, set data type
+companies_clean <- companies_clean %>% 
+  mutate(Country = na_if(companies_clean$Country,""),
+         Company.Type = na_if(companies_clean$Company.Type,""),
+         Industry = na_if(companies_clean$Industry,""),
+         Last.Funding.Date = na_if(companies_clean$Last.Funding.Date,""),
+         Acquired.By = na_if(companies_clean$Acquired.By,""),
+         Employee.Range = na_if(companies_clean$Employee.Range,""),
+         Last.Funding.Amount = na_if(companies_clean$Last.Funding.Amount,0),
+         Total.Funding.Amount = na_if(companies_clean$Total.Funding.Amount,0)) %>% 
+  mutate(Country = as.factor(Country), 
+         Company.Type = as.factor(Company.Type),
+         Industry = as.factor(Industry),
+         Employee.Range = as.numeric(Employee.Range),
+         Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Last.Funding.Date = as.Date(Last.Funding.Date,, "%m/%d/%Y"),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Number.of.Acquisitions = as.integer(Number.of.Acquisitions))
+
+# add new column
+companies_clean <-  
+  cbind(companies_clean, Acquirer.Binary = 
+          as.numeric(ifelse(companies_clean$Number.of.Acquisitions > 0, 1, 0)))
+
+companies_clean %>% glimpse()
+
+
+# MODEL --------------------------------------------------------------------------------------
+
+# remove rows with missing data
+companies_nonmissing <- companies_clean %>% drop_na(Employee.Range, Industry, Acquirer.Binary)
+
+# downsample
+Acquired = which(companies_nonmissing$Acquirer.Binary == 1)
+not_Acquired = which(companies_nonmissing$Acquirer.Binary == 0)
+No.downsample = sample(not_Acquired,length(Acquired))
+orgs_downsampled = companies_nonmissing[c(No.downsample, Acquired),]
+
+
+
+```
+
+
+```{r}
+#Logistic Regression
+# split data
+organization_split <- initial_split(orgs_downsampled, prop=0.7)
+organization_train <- training(organization_split)
+organization_test <- testing(organization_split)
+
+# create model
+logit_model <- cv.glmnet(Acquirer.Binary ~ Industry + Employee.Range, 
+                         data = organization_train,
+                         alpha = 1,
+                         family = binomial)
+
+# view model
+print(logit_model)
+plot(logit_model)
+lasso_coefs <- data.frame(
+  lasso_min = coef(logit_model, s = logit_model$lambda.min) %>% 
+    round(3) %>% as.matrix() ,
+  lasso_1se = coef(logit_model, s = logit_model$lambda.1se) %>% 
+    round(3) %>% as.matrix() 
+) 
+
+# TRAINING
+# predicting values
+scores_train <- predict(logit_model, organization_train, s=logit_model$lambda.min, type = 'response')
+preds_train <- ifelse(scores_train > 0.5, 1,0)
+
+# AUC curve
+results_train <- data.frame(
+  truth = organization_train$Acquirer.Binary,
+  scores = scores_train,
+  predicted = factor(preds_train)
+)
+p_train <- ggplot(results_train, aes(m=scores_train, d=truth)) + 
+  geom_roc(cutoffs.at = c(0.99,0.9,0.7,0.5,0.3,0.1,0))
+print(p_train)
+calc_auc(p_train)
+
+```
+
+
+
+```{r}
+# confusion matrix
+
+results_train <- data.frame(
+  truth = factor(organization_train$Acquirer.Binary),
+  scores = scores_train,
+  predicted = factor(preds_train)
+)
+cm_train <- conf_mat(results_train,
+                     truth = truth,
+                     estimate = predicted)
+print(cm_train)
+summary(cm_train)
+
+```
+
+
+```{r}
+#testing and AUC curve
+# TESTING
+# predicting values
+scores_test <- predict(logit_model, newdata=organization_test, s=logit_model$lambda.min, type = 'response')
+preds_test <- ifelse(scores_test > 0.5, 1,0)
+
+
+# AUC curve
+results_test <- data.frame(
+  truth = organization_test$Acquirer.Binary,
+  scores = scores_test,
+  predicted = factor(preds_test))
+p_test <- ggplot(results_test, aes(m=scores_test, d=truth)) + 
+  geom_roc(cutoffs.at = c(0.99,0.9,0.7,0.5,0.3,0.1,0))
+print(p_test)
+calc_auc(p_test)
+
+# confusion matrix
+results_test <- data.frame(
+  truth = factor(organization_test$Acquirer.Binary),
+  scores = scores_test,
+  predicted = factor(preds_test)
+)
+cm_test <- conf_mat(results_test,
+                    truth = truth,
+                    estimate = predicted)
+print(cm_test)
+summary(cm_test)
+```
+
+
+
+```{r}
+
+#descision tree data cleaning code
+
+companies <- read.csv("organizations.csv")
+
+# remove columns
+companies_clean <- companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries))
+
+# fill in N/A, set data type
+companies_clean <- companies_clean %>% 
+  mutate(Country = na_if(companies_clean$Country,""),
+         Company.Type = na_if(companies_clean$Company.Type,""),
+         Industry = na_if(companies_clean$Industry,""),
+         Currency.of.Last.Funding.Amount = na_if(companies_clean$Currency.of.Last.Funding.Amount,""),
+         Last.Funding.Date = na_if(companies_clean$Last.Funding.Date,""),
+         Acquired.By = na_if(companies_clean$Acquired.By,""),
+         Currency.of.Total.Funding.Amount = na_if(companies_clean$Currency.of.Total.Funding.Amount,""),
+         Employee.Range = na_if(companies_clean$Employee.Range,"")) %>% 
+  mutate(Country = as.factor(Country), 
+         Company.Type = as.factor(Company.Type),
+         Industry = as.factor(Industry),
+         Employee.Range = as.factor(Employee.Range),
+         Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Currency.of.Last.Funding.Amount = as.factor(Currency.of.Last.Funding.Amount),
+         Last.Funding.Date = as.Date(Last.Funding.Date,, "%m/%d/%Y"),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Currency.of.Total.Funding.Amount = as.factor(Currency.of.Total.Funding.Amount),
+         Number.of.Acquisitions = as.integer(Number.of.Acquisitions))
+
+
+#column to numbers
+
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="10-Jan"] <- 1
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="Nov-50"] <- 2
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="51-100"] <- 3
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="101-250"] <- 4
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="251-500"] <- 5
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="501-1000"] <- 6
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="1001-5000"] <- 7
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="5001-10000"] <- 8
+levels(companies_clean$Employee.Range)[levels(companies_clean$Employee.Range)=="10001+"] <- 9
+
+
+# add new column
+companies_clean <-   cbind(companies_clean, Acquirer.Binary = as.numeric(ifelse(companies_clean$Number.of.Acquisitions > 0, 1, 0)))
+companies_clean <- as.data.frame(companies_clean)
+
+companies_clean <- companies_clean %>% drop_na(Number.of.Acquisitions,Last.Funding.Amount,
+                                              Total.Funding.Amount, Employee.Range)
+
+Acquired = which(companies_clean$Number.of.Acquisitions == 1)
+length(Acquired)
+not_Acquired = which(companies_clean$Number.of.Acquisitions == 0) 
+length(not_Acquired)
+No.downsample = sample(not_Acquired,length(Acquired))
+companies_clean= companies_clean[c(No.downsample, Acquired),]
+
+
+```
+
+
+```{r}
+#decision trees
+colSums(is.na(organization_train))
+
+organization_split <- initial_split(companies_clean, prop=0.7)
+organization_train <- training(organization_split)
+organization_test <- testing(organization_split)
+
+
+#Train
+tree_business_train <- tree(formula = Number.of.Acquisitions ~ Last.Funding.Amount +
+                        Total.Funding.Amount+
+                        Employee.Range  , 
+                      data = organization_train)
+par(cex=0.5)
+plot(tree_business_train)
+text(tree_business_train, digit = 2, pretty =0)
+#Test 
+
+tree_business_test <- tree(formula = Number.of.Acquisitions ~ Last.Funding.Amount +
+                        Total.Funding.Amount+
+                        Employee.Range  , 
+                      data = organization_test)
+par(cex=0.5)
+plot(tree_business_test)
+text(tree_business_test, digit = 2, pretty =0)
+
+#RMSE
+
+library(caret)
+preds_business_train <- predict(tree_business_train)
+RMSE(preds_business_train, organization_train$Number.of.Acquisitions)
+
+preds_business_test <- predict(tree_business_test)
+RMSE(preds_business_test, organization_test$Number.of.Acquisitions)
+```
+
+
+```{r}
+rf.clean.org<- randomForest(formula = Number.of.Acquisitions ~ Last.Funding.Amount
+                            +Total.Funding.Amount+
+                              Employee.Range + Total.Funding.Amount ,
+                            data = organization_train,
+                            ntree = 200,
+                            mtry = 8,
+                            importance= TRUE)
+                        
+plot(rf.clean.org)
+
+#RMSE Comprasion
+
+rf.preds.train <- predict(rf.clean.org)
+RMSE(rf.preds.train, organization_train$Number.of.Acquisitions )
+
+rf.preds.test <- predict(rf.clean.org,newdata = organization_test)
+RMSE(rf.preds.test, organization_test$Number.of.Acquisitions)
+
+library(randomForestExplainer)
+
+plot_min_depth_distribution(rf.clean.org)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
