@@ -1,0 +1,200 @@
+---
+title: "Models"
+author: "Team Zulu"
+date: "5/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(tidyverse)
+library('ggplot2')
+library(plyr)
+library(ROSE)
+library(caret)
+library(ISLR)
+library(rsample)
+library(plotROC)
+library(forecast)
+library(glmnet)
+library('glmnetUtils')
+library(groupdata2)
+library('forcats')
+library(ggcorrplot)
+library(tree)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+#Model Number One- Random Forest
+
+companies <- read.csv("organizations.csv")
+
+companies_clean <-
+  companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            Country, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries, 
+  )) %>%
+   mutate(Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Employee.Range = as.factor(Employee.Range),
+         Number.of.Acquisitions = as.integer(Number.of.Acquisitions))
+
+organization_split <- initial_split(companies_clean, prop=0.7)
+organization_train <- training(organization_split)
+organization_test <- testing(organization_split)
+
+tree_business <- tree(formula = Number.of.Acquisitions ~ Last.Funding.Amount +Total.Funding.Amount+
+                        Employee.Range + Total.Funding.Amount  , 
+                      data = companies_clean)
+par(cex=0.5)
+plot(tree_business)
+text(tree_business, digit = 2, pretty =0)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+#Model Number Two- Logistic Regression
+
+# read dataset
+companies <- read.csv("organizations.csv")
+
+# remove columns
+companies_clean <- companies %>%
+  select(-c(Address,
+            Apartment.suite.no, 
+            House.number,
+            Street.road.name,
+            District.sublocality, 
+            City.town.village.locality, 
+            State.county, 
+            Region, 
+            ZIP.Postal.code, 
+            Full.combined.address, 
+            Website,
+            Keywords,
+            CB.Description,
+            CB.Industries,
+            Currency.of.Last.Funding.Amount,
+            Currency.of.Total.Funding.Amount))
+
+# Code for changing the column into numbers
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10-Jan"] <- 1
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="Nov-50"] <- 2
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="51-100"] <- 3
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="101-250"] <- 4
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="251-500"] <- 5
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="501-1000"] <- 6
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="1001-5000"] <- 7
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="5001-10000"] <- 8
+companies_clean$Employee.Range[(companies_clean$Employee.Range)=="10001+"] <- 9
+
+# fill in N/A, set data type
+companies_clean <- companies_clean %>% 
+  mutate(Country = na_if(companies_clean$Country,""),
+         Company.Type = na_if(companies_clean$Company.Type,""),
+         Industry = na_if(companies_clean$Industry,""),
+         Last.Funding.Date = na_if(companies_clean$Last.Funding.Date,""),
+         Acquired.By = na_if(companies_clean$Acquired.By,""),
+         Employee.Range = na_if(companies_clean$Employee.Range,""),
+         Last.Funding.Amount = na_if(companies_clean$Last.Funding.Amount,0),
+         Total.Funding.Amount = na_if(companies_clean$Total.Funding.Amount,0)) %>% 
+  mutate(Country = as.factor(Country), 
+         Company.Type = as.factor(Company.Type),
+         Industry = as.factor(Industry),
+         Employee.Range = as.numeric(Employee.Range),
+         Last.Funding.Amount = as.numeric(Last.Funding.Amount),
+         Last.Funding.Date = as.Date(Last.Funding.Date,, "%m/%d/%Y"),
+         Total.Funding.Amount = as.numeric(Total.Funding.Amount),
+         Number.of.Acquisitions = as.integer(Number.of.Acquisitions))
+
+# add new column
+companies_clean <- 
+  cbind(companies_clean, Acquirer.Binary = as.numeric(ifelse(companies_clean$Number.of.Acquisitions > 0, 1, 0)))
+
+# remove rows with missing data
+companies_nonmissing <- companies_clean %>% drop_na(Employee.Range, Industry, Acquirer.Binary)
+
+# split data
+organization_split <- initial_split(companies_nonmissing, prop=0.7)
+organization_train <- training(organization_split)
+organization_test <- testing(organization_split)
+
+# create model
+logit_model <- cv.glmnet(Acquirer.Binary ~ Industry + Employee.Range, 
+                         data = organization_train,
+                         alpha = 1,
+                         family = binomial)
+
+# view model
+print(logit_model)
+plot(logit_model)
+
+
+# TRAINING
+# predicting values
+scores_train <- predict(logit_model, organization_train, s=logit_model$lambda.min, type = 'response')
+preds_train <- ifelse(scores_train > 0.5, 1,0)
+
+# RMSE
+RMSE(preds_train, organization_train$Acquirer.Binary)
+
+# AUC curve
+results_train <- data.frame(
+  truth = organization_train$Acquirer.Binary,
+  scores = scores_train,
+  predicted = factor(preds_train)
+)
+p_train <- ggplot(results_train, aes(m=scores_train, d=truth)) + 
+  geom_roc(cutoffs.at = c(0.99,0.9,0.7,0.5,0.3,0.1,0))
+print(p_train)
+calc_auc(p_train)
+
+# TESTING
+# predicting values
+scores_test <- predict(logit_model, organization_test, s=logit_model$lambda.min, type = 'response')
+preds_test <- ifelse(scores_test > 0.5, 1,0)
+
+# RMSE
+RMSE(preds_test, organization_test$Acquirer.Binary)
+
+# AUC curve
+results_test <- data.frame(
+  truth = organization_test$Acquirer.Binary,
+  scores = scores_test,
+  predicted = factor(preds_test)
+)
+p_test <- ggplot(results_test, aes(m=scores_test, d=truth)) + 
+  geom_roc(cutoffs.at = c(0.99,0.9,0.7,0.5,0.3,0.1,0))
+print(p_test)
+calc_auc(p_test)
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
